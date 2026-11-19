@@ -1,0 +1,7 @@
+GET /health: HTTP 200
+{'status': 'ok', 'database': 'ok', 'ai_provider': 'gemini', 'ai_configured': False}
+GET /docs: HTTP 200
+GET /openapi.json: HTTP 200
+Exported swagger.json equals schema returned by running Uvicorn server.
+POST valid image without AI credentials: HTTP 503 / AI_NOT_CONFIGURED
+POST invalid PDF: HTTP 400 / INVALID_PDF

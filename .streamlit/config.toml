@@ -1,0 +1,36 @@
+# ============================================================
+#  Smart Note & Quizzify — Google Material Design Light Theme
+# ============================================================
+
+[theme]
+base = "light"
+# Primary · Google Blue
+primaryColor = "#1A73E8"
+# Surface background (nền chính) — làm nổi các thẻ trắng #FFFFFF phía trên
+backgroundColor = "#F4F6F9"
+# Surface container (sidebar, ô nhập liệu) — trắng tinh để tạo lớp vật liệu
+secondaryBackgroundColor = "#FFFFFF"
+# Text Primary
+textColor = "#1F2937"
+font = "sans serif"
+
+# Các khoá dưới đây có từ Streamlit 1.44+ (bản cũ hơn chỉ bỏ qua kèm cảnh báo)
+linkColor = "#1A73E8"
+borderColor = "#DADCE0"
+showWidgetBorder = true
+baseRadius = "12px"
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6F9"
+
+[server]
+# Giữ giới hạn upload hệ thống ở 200MB để chính ứng dụng tự kiểm tra
+# ngưỡng 25MB và báo lỗi bằng st.error theo luồng ngoại lệ FR14.
+maxUploadSize = 200
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

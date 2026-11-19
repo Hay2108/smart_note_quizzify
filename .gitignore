@@ -1,0 +1,19 @@
+﻿# Ẩn tuyệt đối file chứa API Key thật
+.env
+**/.env
+smart_note_backend/.env
+
+# Bỏ qua môi trường ảo và cache Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.pyc
+
+# Bỏ qua file tạm SQLite và file zip cũ
+*.db-journal
+*.db-wal
+*.db-shm
+Smart_Note_Backend_Upload_AI.zip

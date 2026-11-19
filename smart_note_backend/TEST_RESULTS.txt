@@ -1,0 +1,17 @@
+Verification performed on Python 3.12
+
+Command: python -m pytest -q
+Result: 52 passed, 1 warning in 2.21s
+
+Warning: StarletteDeprecationWarning about httpx in starlette.testclient.
+This is a test-client deprecation warning; all tests completed successfully.
+
+Coverage: both REST adapters (Gemini/OpenAI) with HTTP mock transport; images
+and PDFs; real SQLite commit/readback and foreign keys; supplied schema
+compatibility; invalid upload, size/page limits, malformed AI JSON, invalid
+quiz answers, API failure/retry/timeout, transaction rollback, OpenAPI and CORS.
+
+Real Gemini/OpenAI inference NOT executed: no team API key was supplied.
+These tests do NOT establish OCR accuracy or real provider/account compatibility.
+
+Real Uvicorn HTTP checks: see HTTP_SMOKE_RESULTS.txt.
