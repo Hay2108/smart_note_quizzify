@@ -39,6 +39,13 @@ class StudyContent(StrictModel):
     quizzes: list[QuizInput] = Field(min_length=1, max_length=20)
 
 
+class UnifiedStudyOutput(StrictModel):
+    # Empty text/lists are permitted in provider schema, then validated as 422 NO_TEXT_DETECTED or 502 AI_COUNT_MISMATCH.
+    extracted_text: str = Field(max_length=200000)
+    flashcards: list[FlashcardInput] = Field(max_length=20)
+    quizzes: list[QuizInput] = Field(max_length=20)
+
+
 class FlashcardOutput(BaseModel):
     card_id: UUID
     front_text: str

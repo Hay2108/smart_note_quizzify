@@ -15,6 +15,7 @@ Kiến trúc 6 màn hình wireframe:
 Chạy: streamlit run app.py
 """
 
+from collections import defaultdict
 import copy
 import html
 import json
@@ -36,7 +37,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        "About": "Smart Note & Quizzify — biến ảnh bảng/slide và file ghi âm bài giảng "
+        "About": "Smart Note & Quizzify — biến ảnh chụp bảng/slide và file PDF bài giảng "
                  "thành tóm tắt, flashcard và trắc nghiệm ôn tập bằng AI."
     },
 )
@@ -155,8 +156,7 @@ div[data-testid="stVerticalBlock"][class*="st-key-card"]:hover {
   box-shadow: var(--md-elev-2);
 }
 /* Thẻ tương tác (Thư viện / preview) — nổi lên vật lý khi hover */
-div[data-testid="stVerticalBlock"][class*="st-key-card_lib_"]:hover,
-div[data-testid="stVerticalBlock"][class*="st-key-card_stat"]:hover {
+div[data-testid="stVerticalBlock"][class*="st-key-card_lib_"]:hover {
   transform: translateY(-2px);
 }
 div[data-testid="stVerticalBlock"][class*="st-key-card_lib_"] { height: 100%; }
@@ -361,7 +361,7 @@ button[data-testid^="stBaseButton-"]:active {
   display: block; font-size: 1rem; font-weight: 700; color: var(--md-text);
 }
 [data-testid="stFileUploaderDropzoneInstructions"]::after {
-  content: "JPG · PNG · WEBP · PDF · MP3 · WAV · M4A  —  tối đa 25MB";
+  content: "JPG · JPEG · PNG · WEBP · PDF  —  tối đa 10MB";
   display: block; font-size: 0.82rem; font-weight: 500; color: var(--md-text-2); margin-top: 4px;
 }
 [data-testid="stFileUploaderDropzone"] button[data-testid="stBaseButton-secondary"] {
@@ -483,7 +483,6 @@ button[data-baseweb="tab"][aria-selected="true"] {
 [class*="st-key-metric_success"] [data-testid="stMetric"] { border-top-color: var(--md-success); }
 [class*="st-key-metric_error"] [data-testid="stMetric"] { border-top-color: var(--md-error); }
 [class*="st-key-metric_indigo"] [data-testid="stMetric"] { border-top-color: var(--md-indigo); }
-[class*="st-key-metric_amber"] [data-testid="stMetric"] { border-top-color: var(--md-amber); }
 
 /* ---------- 1.13 ALERTS, SPINNER & TOAST (DYNAMIC UI COMPONENTS) ---------- */
 [data-testid="stAlertContainer"] {
@@ -660,8 +659,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
   display: grid; place-items: center;
 }
 .md-file-icon.image { background: var(--md-primary-tint); color: var(--md-primary); }
-.md-file-icon.audio { background: var(--md-indigo-tint); color: var(--md-indigo); }
-.md-file-icon.bad { background: var(--md-error-tint); color: var(--md-error); }
+.md-file-icon.pdf { background: var(--md-indigo-tint); color: var(--md-indigo); }
 .md-file-name { font-weight: 700; color: var(--md-text); word-break: break-all; }
 .md-file-meta { font-size: 0.82rem; color: var(--md-text-2); margin-top: 2px; }
 
@@ -762,7 +760,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .lib-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .lib-src { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; }
 .lib-src.image { background: var(--md-primary-tint); color: var(--md-primary); }
-.lib-src.audio { background: var(--md-indigo-tint); color: var(--md-indigo); }
+.lib-src.pdf { background: var(--md-indigo-tint); color: var(--md-indigo); }
 .lib-title { font-size: 1.08rem; font-weight: 800; color: var(--md-text); line-height: 1.4; margin: 16px 0 4px; min-height: 3em; }
 .lib-file { font-size: 0.82rem; color: var(--md-text-2); display: flex; align-items: center; gap: 6px; }
 .lib-file .msr { font-size: 16px; }
@@ -791,7 +789,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 .md-results-label { font-size: 0.85rem; font-weight: 600; color: var(--md-text-2); margin: 8px 0 16px; }
 
 .md-meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
-.md-summary [data-testid="stMarkdownContainer"] li { margin-bottom: 8px; }
+.st-key-md_summary [data-testid="stMarkdownContainer"] li { margin-bottom: 8px; }
 
 /* ---------- 1.15 RESPONSIVE (Mobile ≤ 640px, Tablet ≤ 960px) ---------- */
 @media (max-width: 960px) {
@@ -825,22 +823,19 @@ st.markdown(MATERIAL_CSS, unsafe_allow_html=True)
 # ==========================================================
 # 2. HẰNG SỐ, HELPER RENDER & SESSION STATE
 # ==========================================================
-IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"]
-DOC_EXTENSIONS = ["pdf"]
-AUDIO_EXTENSIONS = ["mp3", "wav", "m4a"]
-ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS + DOC_EXTENSIONS + AUDIO_EXTENSIONS
-BACKEND_NATIVE_EXTENSIONS = set(IMAGE_EXTENSIONS + DOC_EXTENSIONS)
+IMAGE_EXTENSIONS = ("jpg", "jpeg", "png", "webp")
+DOC_EXTENSIONS = ("pdf",)
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "pdf"}
+ALLOWED_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp", "pdf"]
 BACKEND_MIME_MAP = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
     "png": "image/png",
     "webp": "image/webp",
     "pdf": "application/pdf",
-    "mp3": "audio/mpeg",
-    "wav": "audio/wav",
-    "m4a": "audio/mp4",
 }
-MAX_FILE_SIZE_MB = 25  # Ngưỡng dung lượng của luồng ngoại lệ FR14
+MAX_FILE_SIZE_MB = 10  # Khớp tuyệt đối với MAX_UPLOAD_MB=10 của smart_note_backend (FR14)
+MAX_PDF_PAGES = 20     # Khớp với MAX_PDF_PAGES=20 của smart_note_backend
 SUBJECT_LIST = ["Trí tuệ nhân tạo (AI)", "Cơ học kỹ thuật", "Kinh tế vĩ mô", "Đồ họa máy tính", "Môn học khác"]
 BACKEND_SQLITE_PATH = Path(__file__).parent / "smart_note_backend" / "smart_note.db"
 FASTAPI_BASE_URL = "http://127.0.0.1:8000"
@@ -881,9 +876,9 @@ def subject_chip(subject: str) -> str:
 
 def file_kind(file_name: str) -> str:
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-    if ext in AUDIO_EXTENSIONS:
-        return "audio"
-    if ext in IMAGE_EXTENSIONS or ext in DOC_EXTENSIONS:
+    if ext in DOC_EXTENSIONS:
+        return "pdf"
+    if ext in IMAGE_EXTENSIONS:
         return "image"
     return "other"
 
@@ -1095,7 +1090,7 @@ def synthesize_summary_from_ai_data(extracted_text: str, flashcards: list[dict])
 
 def normalize_study_set(payload: dict, fallback_subject: str = "", fallback_file_name: str = "") -> dict:
     """
-    Chuẩn hoá JSON trả về từ Mock Data hoặc Endpoint POST /api/v1/upload của Backend
+    Chuẩn hoá JSON trả về từ Endpoint POST /api/v1/upload của Backend
     về đúng schema chuẩn hiển thị trên 6 màn hình Streamlit.
     Hỗ trợ linh hoạt cả response phẳng hoặc bọc trong {"data": {...}} / {"result": {...}},
     cũng như các biến thể tên trường (front/back, front_text/back_text, answer/correct_answer...).
@@ -1185,13 +1180,7 @@ def normalize_study_set(payload: dict, fallback_subject: str = "", fallback_file
 
     meta = inner.get("meta") or payload.get("meta")
     if not isinstance(meta, dict):
-        ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-        if ext == "pdf":
-            engine_default = "PDF Vision OCR"
-        elif file_kind(file_name) == "audio":
-            engine_default = "Speech-to-Text"
-        else:
-            engine_default = "Vision OCR"
+        engine_default = "PDF OCR" if file_kind(file_name) == "pdf" else "Vision OCR"
         meta = {"engine": engine_default, "detail": f"Từ /api/v1/upload · {len(flashcards)} thẻ · {len(quizzes)} câu hỏi"}
 
     return {
@@ -1213,10 +1202,11 @@ def normalize_study_set(payload: dict, fallback_subject: str = "", fallback_file
 def load_sqlite_library(db_path: Path = BACKEND_SQLITE_PATH) -> list[dict]:
     """
     Đọc trực tiếp các bộ học liệu thật đã được Backend lưu trong SQLite (smart_note.db)
-    để đồng bộ vào Màn 6 (Thư viện).
+    bằng đúng 3 truy vấn gộp (tránh N+1 queries) để đồng bộ nhanh vào Màn 6 (Thư viện).
     """
     if not db_path.exists():
         return []
+    conn = None
     try:
         conn = sqlite3.connect(str(db_path), timeout=5)
         conn.row_factory = sqlite3.Row
@@ -1224,49 +1214,72 @@ def load_sqlite_library(db_path: Path = BACKEND_SQLITE_PATH) -> list[dict]:
         docs = cur.execute(
             "SELECT doc_id, user_id, file_name, extracted_text, created_at FROM documents ORDER BY created_at DESC"
         ).fetchall()
+        if not docs:
+            return []
+
+        cards_by_doc: dict[str, list[dict]] = defaultdict(list)
+        for row in cur.execute(
+            "SELECT doc_id, card_id, front_text, back_text FROM flashcards ORDER BY created_at ASC"
+        ).fetchall():
+            cards_by_doc[row["doc_id"]].append({
+                "card_id": row["card_id"],
+                "front_text": row["front_text"],
+                "back_text": row["back_text"],
+            })
+
+        quizzes_by_doc: dict[str, list[dict]] = defaultdict(list)
+        for row in cur.execute(
+            "SELECT doc_id, quiz_id, question, options, correct_answer FROM quizzes ORDER BY created_at ASC"
+        ).fetchall():
+            raw_opts = row["options"]
+            if isinstance(raw_opts, str):
+                try:
+                    opts = json.loads(raw_opts)
+                except Exception:  # noqa: BLE001
+                    opts = []
+            elif isinstance(raw_opts, list):
+                opts = raw_opts
+            else:
+                opts = []
+            quizzes_by_doc[row["doc_id"]].append({
+                "quiz_id": row["quiz_id"],
+                "question": row["question"],
+                "options": opts,
+                "correct_answer": row["correct_answer"],
+            })
+
         items: list[dict] = []
+        now_fallback = datetime.now().strftime("%Y-%m-%d %H:%M")
         for doc in docs:
             doc_id = doc["doc_id"]
-            cards = cur.execute(
-                "SELECT card_id, front_text, back_text FROM flashcards WHERE doc_id = ? ORDER BY created_at ASC",
-                (doc_id,),
-            ).fetchall()
-            quizzes_rows = cur.execute(
-                "SELECT quiz_id, question, options, correct_answer FROM quizzes WHERE doc_id = ? ORDER BY created_at ASC",
-                (doc_id,),
-            ).fetchall()
-            parsed_quizzes = []
-            for q in quizzes_rows:
-                raw_opts = q["options"]
-                if isinstance(raw_opts, str):
-                    try:
-                        opts = json.loads(raw_opts)
-                    except Exception:  # noqa: BLE001
-                        opts = []
-                elif isinstance(raw_opts, list):
-                    opts = raw_opts
-                else:
-                    opts = []
-                parsed_quizzes.append({
-                    "quiz_id": q["quiz_id"],
-                    "question": q["question"],
-                    "options": opts,
-                    "correct_answer": q["correct_answer"],
-                })
             created_str = str(doc["created_at"] or "")[:16]
             items.append(normalize_study_set({
                 "doc_id": doc_id,
                 "user_id": doc["user_id"],
                 "file_name": doc["file_name"] or "tai_lieu_ai.png",
                 "extracted_text": doc["extracted_text"] or "",
-                "created_at": created_str or datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "flashcards": [dict(c) for c in cards],
-                "quizzes": parsed_quizzes,
+                "created_at": created_str or now_fallback,
+                "flashcards": cards_by_doc.get(doc_id, []),
+                "quizzes": quizzes_by_doc.get(doc_id, []),
             }))
-        conn.close()
         return items
     except Exception:  # noqa: BLE001
         return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def upsert_library_item(study_set: dict) -> None:
+    """Thêm mới hoặc cập nhật bộ học liệu trong st.session_state.library_db theo doc_id."""
+    if not isinstance(study_set, dict):
+        return
+    doc_id = study_set.get("doc_id")
+    for idx, item in enumerate(st.session_state.library_db):
+        if item.get("doc_id") == doc_id:
+            st.session_state.library_db[idx] = study_set
+            return
+    st.session_state.library_db.insert(0, study_set)
 
 
 def build_seed_library() -> list[dict]:
@@ -1337,11 +1350,56 @@ flush_pending_toast()
 # ==========================================================
 # 3. DỊCH VỤ API TRỰC TIẾP (BACKEND POST /api/v1/upload)
 # ==========================================================
+_ORIG_REQUESTS_POST = requests.post
+_ORIG_REQUESTS_GET = requests.get
+_FALLBACK_HTTP_SESSION: requests.Session | None = None
+
+
+@st.cache_resource
+def get_http_session() -> requests.Session:
+    """Tái sử dụng kết nối HTTP (keep-alive / connection pooling) tới FastAPI Backend."""
+    global _FALLBACK_HTTP_SESSION
+    if _FALLBACK_HTTP_SESSION is None:
+        _FALLBACK_HTTP_SESSION = requests.Session()
+    return _FALLBACK_HTTP_SESSION
+
+
+def _http_post(url: str, **kwargs):
+    """Dùng Session tái sử dụng kết nối; tự động tôn trọng patch('app.requests.post') trong unit test."""
+    if requests.post is not _ORIG_REQUESTS_POST:
+        return requests.post(url, **kwargs)
+    return get_http_session().post(url, **kwargs)
+
+
+def _http_get(url: str, **kwargs):
+    """Dùng Session tái sử dụng kết nối; tự động tôn trọng patch('app.requests.get') trong unit test."""
+    if requests.get is not _ORIG_REQUESTS_GET:
+        return requests.get(url, **kwargs)
+    return get_http_session().get(url, **kwargs)
+
+
+def parse_process_time_seconds(response, fallback_seconds: float) -> float:
+    """Đọc thời gian xử lý thực từ header X-Process-Time-Ms của Backend, fallback về wall-clock."""
+    headers = getattr(response, "headers", None)
+    if headers and hasattr(headers, "get"):
+        raw_ms = headers.get("X-Process-Time-Ms")
+        if raw_ms is None:
+            raw_ms = headers.get("x-process-time-ms")
+        if isinstance(raw_ms, (str, int, float)):
+            try:
+                ms_val = float(raw_ms)
+                if ms_val >= 0:
+                    return ms_val / 1000.0
+            except (TypeError, ValueError):
+                pass
+    return max(0.0, float(fallback_seconds))
+
+
 def check_backend_health(base_url: str = FASTAPI_BASE_URL) -> dict:
     """Kiểm tra trạng thái hoạt động của Backend FastAPI qua GET /health."""
     health_url = f"{base_url.rstrip('/')}{FASTAPI_HEALTH_ENDPOINT}"
     try:
-        res = requests.get(health_url, timeout=2.0)
+        res = _http_get(health_url, timeout=2.0)
         if res.ok:
             data = res.json()
             return {
@@ -1393,10 +1451,9 @@ def api_upload(
     Nối trực tiếp Endpoint POST /api/v1/upload từ Backend (smart_note_backend) vào Streamlit.
     Gửi multipart/form-data gồm file nhị phân (với MIME chuẩn) + flashcard_count + quiz_count
     tới {base_url}/api/v1/upload (nhận HTTP 201 Created), trích xuất dữ liệu thật từ AI (extracted_text,
-    flashcards, quizzes) và chuẩn hoá hiển thị cho cả 6 màn hình.
+    flashcards, quizzes), đo thời gian xử lý thực và chuẩn hoá hiển thị cho cả 6 màn hình.
     """
     if simulate_error:
-        time.sleep(0.5)
         return {
             "status": "error",
             "code": "SIMULATED_QA_ERROR",
@@ -1410,12 +1467,14 @@ def api_upload(
         "quiz_count": str(max(1, min(20, int(quiz_count)))),
     }
     try:
-        res = requests.post(
+        t0 = time.perf_counter()
+        res = _http_post(
             endpoint_url,
             files={"file": (file_info["name"], file_info["bytes"], mime_type)},
             data=form_data,
             timeout=125,
         )
+        wall_seconds = time.perf_counter() - t0
         body = {}
         try:
             body = res.json()
@@ -1432,15 +1491,26 @@ def api_upload(
                 "raw_json": body,
             }
 
+        duration_s = parse_process_time_seconds(res, wall_seconds)
         study_set = normalize_study_set(body, fallback_subject=subject, fallback_file_name=file_info["name"])
-        study_set["meta"] = body.get("meta") if isinstance(body.get("meta"), dict) else {
-            "engine": "AI Backend (/api/v1/upload)",
-            "detail": f"HTTP {getattr(res, 'status_code', 201)} · {len(study_set['flashcards'])} thẻ · {len(study_set['quizzes'])} câu hỏi",
-        }
+        if isinstance(body.get("meta"), dict):
+            meta = dict(body["meta"])
+            meta.setdefault("duration_s", round(duration_s, 2))
+        else:
+            meta = {
+                "engine": "AI Backend (/api/v1/upload)",
+                "detail": (
+                    f"HTTP {getattr(res, 'status_code', 201)} · {duration_s:.1f}s · "
+                    f"{len(study_set['flashcards'])} thẻ · {len(study_set['quizzes'])} câu hỏi"
+                ),
+                "duration_s": round(duration_s, 2),
+            }
+        study_set["meta"] = meta
         return {
             "status": "success",
             "extracted_text": study_set["extracted_text"],
             "meta": study_set["meta"],
+            "duration_s": round(duration_s, 2),
             "data": study_set,
             "raw_json": body,
         }
@@ -1480,7 +1550,6 @@ def api_finalize_study_set(
       và cập nhật lại văn bản + bản tóm tắt theo nội dung người dùng vừa chỉnh sửa ở Màn 2.
     - Nếu bộ học liệu chưa có trong phiên, gọi trực tiếp POST /api/v1/upload từ Backend (tuyệt đối không dùng dữ liệu giả).
     """
-    time.sleep(0.35)
     if simulate_error:
         return {
             "status": "error",
@@ -1520,6 +1589,97 @@ def api_finalize_study_set(
     return {"status": "success", "data": pending}
 
 
+def get_error_hint(code: str) -> tuple[str, str, str] | None:
+    """Trả về (level, hint_message, material_icon) hướng dẫn khắc phục tiếng Việt theo mã lỗi Backend."""
+    if code == "BACKEND_UNREACHABLE":
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Hãy mở Terminal chạy `.\\run_backend.bat` (hoặc `uvicorn app.main:app --reload` trong `smart_note_backend`) "
+            "để bật máy chủ ở cổng `8000`, sau đó bấm **Thử lại**.",
+            ":material/terminal:",
+        )
+    if code in {"AI_NOT_CONFIGURED", "AI_AUTH_ERROR", "INVALID_MODEL_CONFIG"}:
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Kiểm tra lại `GEMINI_API_KEY` / `OPENAI_API_KEY` và tên model (`GEMINI_MODEL`) trong `smart_note_backend/.env`, "
+            "sau đó khởi động lại Backend và bấm **Thử lại**.",
+            ":material/key:",
+        )
+    if code == "AI_TIMEOUT":
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** AI xử lý quá thời gian cho phép. Hãy thử giảm độ phân giải ảnh/số trang PDF, giảm số Flashcard/Quiz, "
+            "hoặc bấm **Thử lại** sau vài giây.",
+            ":material/timer_off:",
+        )
+    if code in {"FILE_TOO_LARGE", "REQUEST_TOO_LARGE", "IMAGE_TOO_LARGE", "NORMALIZED_IMAGE_TOO_LARGE"}:
+        return (
+            "warning",
+            f"**Gợi ý khắc phục:** Tệp hoặc ảnh vượt giới hạn dung lượng/độ phân giải (tối đa {MAX_FILE_SIZE_MB} MB và 20 triệu điểm ảnh). "
+            "Hãy nén ảnh, giảm độ phân giải hoặc chia nhỏ file rồi tải lên lại.",
+            ":material/photo_size_select_large:",
+        )
+    if code == "PDF_TOO_MANY_PAGES":
+        return (
+            "warning",
+            f"**Gợi ý khắc phục:** File PDF vượt quá giới hạn {MAX_PDF_PAGES} trang. "
+            "Hãy tách riêng các trang bài giảng cần ôn thành file PDF ngắn hơn rồi tải lên lại.",
+            ":material/description:",
+        )
+    if code == "AI_RATE_LIMITED":
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Dịch vụ AI đang giới hạn tần suất hoặc hết hạn mức (quota). "
+            "Hãy đợi 30–60 giây rồi bấm **Thử lại**, hoặc kiểm tra quota của API key.",
+            ":material/speed:",
+        )
+    if code == "AI_REQUEST_REJECTED":
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Dịch vụ AI từ chối yêu cầu (thường do cấu hình model không hỗ trợ hoặc nội dung bị từ chối). "
+            "Hãy kiểm tra `GEMINI_MODEL` / `AI_PROVIDER` trong `smart_note_backend/.env` hoặc thử file khác.",
+            ":material/tune:",
+        )
+    if code in {
+        "AI_UPSTREAM_ERROR",
+        "AI_CONNECTION_ERROR",
+        "AI_INVALID_RESPONSE",
+        "AI_INCOMPLETE_RESPONSE",
+        "AI_INVALID_JSON",
+        "AI_COUNT_MISMATCH",
+    }:
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Dịch vụ AI tạm thời gặp sự cố hoặc trả về dữ liệu chưa chuẩn. "
+            "File của bạn vẫn được giữ nguyên — hãy bấm **Thử lại**.",
+            ":material/cloud_sync:",
+        )
+    if code in {
+        "NO_TEXT_DETECTED",
+        "INVALID_IMAGE",
+        "INVALID_PDF",
+        "ENCRYPTED_PDF",
+        "ANIMATED_IMAGE",
+        "EMPTY_FILE",
+        "UNSUPPORTED_FILE_TYPE",
+        "CONTENT_TYPE_MISMATCH",
+        "INVALID_FILENAME",
+    }:
+        return (
+            "info",
+            "**Gợi ý khắc phục:** Hãy chọn ảnh tĩnh (JPG, JPEG, PNG, WEBP) hoặc file PDF không đặt mật khẩu, rõ nét và có chứa văn bản đọc được.",
+            ":material/lightbulb:",
+        )
+    if code == "DATABASE_ERROR":
+        return (
+            "warning",
+            "**Gợi ý khắc phục:** Lỗi lưu dữ liệu vào SQLite cục bộ (`smart_note.db`). "
+            "Hãy kiểm tra xem file CSDL có đang bị khoá bởi tiến trình khác không rồi bấm **Thử lại**.",
+            ":material/storage:",
+        )
+    return None
+
+
 def render_error_alert_with_hint(error_state: tuple) -> None:
     """
     Component UI động hiển thị Alert lỗi từ Backend kèm hướng dẫn khắc phục theo mã lỗi.
@@ -1527,23 +1687,13 @@ def render_error_alert_with_hint(error_state: tuple) -> None:
     msg = error_state[1] if len(error_state) > 1 else "Đã xảy ra lỗi khi gọi API."
     code = error_state[2] if len(error_state) > 2 else "API_ERROR"
     st.error(msg, icon=":material/cloud_off:")
-    if code == "BACKEND_UNREACHABLE":
-        st.warning(
-            "**Gợi ý khắc phục:** Hãy mở Terminal chạy `.\\run_backend.bat` (hoặc `uvicorn app.main:app --reload` tại `smart_note_backend`) "
-            "để bật máy chủ ở cổng `8000`, sau đó bấm **Thử lại**.",
-            icon=":material/terminal:",
-        )
-    elif code in {"AI_NOT_CONFIGURED", "AI_AUTH_ERROR"}:
-        st.warning(
-            "**Gợi ý khắc phục:** Kiểm tra lại khoá `GEMINI_API_KEY` hoặc `OPENAI_API_KEY` trong file `smart_note_backend/.env`, "
-            "sau đó bấm **Thử lại**.",
-            icon=":material/key:",
-        )
-    elif code in {"NO_TEXT_DETECTED", "INVALID_IMAGE", "INVALID_PDF", "UNSUPPORTED_FILE_TYPE", "CONTENT_TYPE_MISMATCH"}:
-        st.info(
-            "**Gợi ý khắc phục:** Hãy chọn một ảnh chụp bảng/slide hoặc file PDF rõ nét, có chứa văn bản đọc được.",
-            icon=":material/lightbulb:",
-        )
+    hint = get_error_hint(code)
+    if hint:
+        level, hint_msg, hint_icon = hint
+        if level == "info":
+            st.info(hint_msg, icon=hint_icon)
+        else:
+            st.warning(hint_msg, icon=hint_icon)
 
 
 # ==========================================================
@@ -1635,8 +1785,7 @@ with st.sidebar:
             else:
                 st.warning(f"Backend Offline ({bh.get('error')})", icon=":material/cloud_off:")
 
-        simulate_api_error = st.checkbox("Giả lập lỗi kết nối API (Test nút Thử lại)", value=False,
-                                         key="simulate_api_error")
+        st.checkbox("Giả lập lỗi kết nối API (Test nút Thử lại)", value=False, key="simulate_api_error")
 
         if st.session_state.last_raw_json:
             with st.popover("Xem JSON Response gần nhất", icon=":material/data_object:", use_container_width=True):
@@ -1654,43 +1803,46 @@ with st.sidebar:
 # 5.1 · MÀN 1 (TẢI LÊN) & MÀN 2 (XEM VÀ SỬA VĂN BẢN)
 # ----------------------------------------------------------
 def validate_upload(file_obj):
-    """Luồng ngoại lệ FR14 — kiểm tra định dạng & dung lượng. Trả về (hợp lệ, thông báo lỗi)."""
+    """Luồng ngoại lệ FR14 — kiểm tra định dạng & dung lượng (khớp Backend 10 MB, JPG/JPEG/PNG/WEBP/PDF)."""
     ext = file_obj.name.rsplit(".", 1)[-1].lower() if "." in file_obj.name else ""
     if ext not in ALLOWED_EXTENSIONS:
-        return False, (f"Định dạng file “.{ext or '?'}” không hợp lệ! Chỉ chấp nhận JPG, PNG, WEBP, PDF, MP3, WAV, M4A. "
-                       f"Vui lòng chọn lại file (Mã lỗi: FR14).")
+        return False, (
+            f"Định dạng file “.{ext or '?'}” không hợp lệ! Chỉ chấp nhận JPG, JPEG, PNG, WEBP và PDF. "
+            f"Vui lòng chọn lại file (Mã lỗi: FR14)."
+        )
+    if file_obj.size <= 0:
+        return False, "File rỗng (0 byte). Vui lòng chọn ảnh hoặc PDF có nội dung (Mã lỗi: FR14)."
     size_mb = file_obj.size / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
-        return False, (f"Dung lượng file ({size_mb:.1f} MB) vượt quá giới hạn {MAX_FILE_SIZE_MB} MB. "
-                       f"Vui lòng chọn lại file nhẹ hơn (Mã lỗi: FR14).")
+        return False, (
+            f"Dung lượng file ({size_mb:.1f} MB) vượt quá giới hạn {MAX_FILE_SIZE_MB} MB. "
+            f"Vui lòng chọn lại file nhẹ hơn (Mã lỗi: FR14)."
+        )
     return True, ""
 
 
 def handle_extraction(progress_slot) -> None:
     """
     Gửi file trực tiếp lên POST /api/v1/upload kèm Progress Bar động + Spinner khi chờ AI xử lý
-    và Toast + Alert khi có lỗi hoặc thành công.
+    và Toast + Alert khi có lỗi hoặc thành công (không có độ trễ giả lập).
     """
     file_info = st.session_state.pending_file
     if file_info is None:
         st.toast("Vui lòng chọn file học liệu hợp lệ trước khi xử lý!", icon=":material/warning:")
-        st.error("Vui lòng chọn một file ảnh, PDF hoặc ghi âm hợp lệ trước khi bấm **Bắt đầu xử lý**.", icon=":material/upload_file:")
+        st.error("Vui lòng chọn một file ảnh hoặc PDF hợp lệ trước khi bấm **Bắt đầu xử lý**.", icon=":material/upload_file:")
         return
 
-    engine = "Speech-to-Text" if file_kind(file_info["name"]) == "audio" else "Vision OCR"
+    engine = "PDF OCR" if file_kind(file_info["name"]) == "pdf" else "Vision OCR"
     fc_cnt = st.session_state.get("flashcard_count", DEFAULT_FLASHCARD_COUNT)
     qz_cnt = st.session_state.get("quiz_count", DEFAULT_QUIZ_COUNT)
-    bar = progress_slot.progress(5, text=f"Đang khởi tạo kết nối tới {FASTAPI_UPLOAD_ENDPOINT} ({engine})…")
+    sim_err = bool(st.session_state.get("simulate_api_error", False))
+    bar = progress_slot.progress(20, text=f"Đang gửi file tới POST {FASTAPI_UPLOAD_ENDPOINT} ({engine})…")
 
     with st.spinner(f"AI đang đọc file “{file_info['name']}”, trích xuất văn bản ({engine}) và biên soạn {fc_cnt} Flashcard & {qz_cnt} câu Quiz…"):
-        time.sleep(0.15)
-        bar.progress(25, text=f"Đang tải file lên POST {FASTAPI_UPLOAD_ENDPOINT}… 25%")
-        time.sleep(0.15)
-        bar.progress(55, text="AI đang nhận diện văn bản (OCR) và phân tích kiến thức trọng tâm… 55%")
         res = api_upload(
             file_info=file_info,
             subject=st.session_state.selected_subject,
-            simulate_error=simulate_api_error,
+            simulate_error=sim_err,
             base_url=st.session_state.backend_base_url,
             flashcard_count=fc_cnt,
             quiz_count=qz_cnt,
@@ -1704,20 +1856,16 @@ def handle_extraction(progress_slot) -> None:
         st.rerun()
 
     bar.progress(100, text="Hoàn tất nhận dữ liệu thật từ AI qua /api/v1/upload (HTTP 201)!")
-    time.sleep(0.2)
     progress_slot.empty()
 
     # Lưu luôn vào Thư viện ngay khi nhận dữ liệu từ /api/v1/upload (đồng bộ với SQLite của Backend)
     if res.get("data"):
-        existing_ids = [item.get("doc_id") for item in st.session_state.library_db]
-        if res["data"].get("doc_id") in existing_ids:
-            idx = existing_ids.index(res["data"]["doc_id"])
-            st.session_state.library_db[idx] = res["data"]
-        else:
-            st.session_state.library_db.insert(0, res["data"])
+        upsert_library_item(res["data"])
 
+    duration_s = res.get("duration_s")
+    time_suffix = f" trong {duration_s:.1f}s" if isinstance(duration_s, (int, float)) else ""
     queue_toast(
-        f"Trích xuất thành công! Đã tạo {len(res['data']['flashcards'])} Flashcard & {len(res['data']['quizzes'])} Quiz.",
+        f"Trích xuất thành công{time_suffix}! Đã tạo {len(res['data']['flashcards'])} Flashcard & {len(res['data']['quizzes'])} Quiz.",
         ":material/check_circle:",
     )
     st.session_state.update({
@@ -1743,20 +1891,14 @@ def handle_generation(progress_slot, text_to_process: str) -> None:
         st.error("Văn bản trích xuất không được để trống!", icon=":material/error:")
         return
 
-    bar = progress_slot.progress(10, text="AI đang phân tích ý chính từ văn bản…")
-    with st.spinner("Đang tổng hợp bản Tóm tắt, đồng bộ Flashcard và câu hỏi Trắc nghiệm…"):
-        for pct, msg in (
-            (35, "Đang tổng hợp bản tóm tắt trọng tâm…"),
-            (65, "Đang đồng bộ bộ thẻ Flashcard…"),
-            (85, "Đang hoàn thiện bộ câu hỏi Trắc nghiệm…"),
-        ):
-            time.sleep(0.12)
-            bar.progress(pct, text=f"{msg} {pct}%")
+    sim_err = bool(st.session_state.get("simulate_api_error", False))
+    bar = progress_slot.progress(30, text="Đang tổng hợp bản Tóm tắt, Flashcard và Trắc nghiệm…")
+    with st.spinner("Đang đồng bộ văn bản, Flashcard và câu hỏi Trắc nghiệm…"):
         res = api_finalize_study_set(
             raw_text=text_to_process,
             subject=st.session_state.selected_subject,
             file_name=st.session_state.uploaded_file_name or "Tai_lieu_moi.png",
-            simulate_error=simulate_api_error,
+            simulate_error=sim_err,
             base_url=st.session_state.backend_base_url,
         )
 
@@ -1768,17 +1910,12 @@ def handle_generation(progress_slot, text_to_process: str) -> None:
         st.rerun()
 
     bar.progress(100, text="Đã sinh học liệu thành công!")
-    time.sleep(0.2)
     progress_slot.empty()
     st.session_state.api_error_state = None
     st.session_state.current_study_set = res["data"]
-    # Cập nhật hoặc thêm mới vào Thư viện (tránh trùng lặp doc_id nếu sinh lại)
-    existing_ids = [item.get("doc_id") for item in st.session_state.library_db]
-    if res["data"].get("doc_id") in existing_ids:
-        idx = existing_ids.index(res["data"]["doc_id"])
-        st.session_state.library_db[idx] = res["data"]
-    else:
-        st.session_state.library_db.insert(0, res["data"])
+    st.session_state.pending_file = None
+    st.session_state.pending_study_set = None
+    upsert_library_item(res["data"])
     st.session_state.current_screen = 3
     queue_toast("Đã hoàn tất bộ học liệu và lưu vào Thư viện!", ":material/check_circle:")
     st.rerun()
@@ -1803,12 +1940,16 @@ def render_create_upload_and_edit() -> None:
 
     # ---------------- MÀN 1 · TẢI LÊN ----------------
     with st.container(border=True, key="card_upload"):
-        render_section("upload_file", "Màn 1 · Tải lên", "Chọn học liệu của bạn",
-                       "Hỗ trợ ảnh/tài liệu <b>JPG, PNG, WEBP, PDF</b> và ghi âm <b>MP3, WAV, M4A</b> — dung lượng tối đa <b>25MB</b>.")
+        render_section(
+            "upload_file",
+            "Màn 1 · Tải lên",
+            "Chọn học liệu của bạn",
+            f"Hỗ trợ ảnh/tài liệu <b>JPG, JPEG, PNG, WEBP, PDF</b> — dung lượng tối đa <b>{MAX_FILE_SIZE_MB}MB</b> (PDF tối đa {MAX_PDF_PAGES} trang).",
+        )
 
         uploaded_file = st.file_uploader(
-            "Ảnh hoặc file ghi âm bài giảng",
-            type=None,  # Không giới hạn ở widget để chủ động bắt lỗi FR14 bằng st.error
+            "Ảnh hoặc file PDF bài giảng",
+            type=ALLOWED_UPLOAD_TYPES,
             key=f"uploader_{st.session_state.uploader_key}",
             label_visibility="collapsed",
         )
@@ -1817,11 +1958,14 @@ def render_create_upload_and_edit() -> None:
         if uploaded_file is not None:
             ok, upload_error = validate_upload(uploaded_file)
             if ok:
-                if (st.session_state.pending_file is None
-                        or st.session_state.pending_file["name"] != uploaded_file.name
-                        or st.session_state.pending_file["size"] != uploaded_file.size):
+                file_sig = (getattr(uploaded_file, "file_id", None), uploaded_file.name, uploaded_file.size)
+                prev_pf = st.session_state.pending_file
+                prev_sig = (prev_pf.get("file_id"), prev_pf.get("name"), prev_pf.get("size")) if prev_pf else None
+                if prev_sig != file_sig:
                     st.session_state.pending_file = {
-                        "name": uploaded_file.name, "size": uploaded_file.size,
+                        "file_id": file_sig[0],
+                        "name": uploaded_file.name,
+                        "size": uploaded_file.size,
                         "type": uploaded_file.type or "application/octet-stream",
                         "bytes": uploaded_file.getvalue(),
                     }
@@ -1837,9 +1981,10 @@ def render_create_upload_and_edit() -> None:
         elif st.session_state.pending_file:
             pf = st.session_state.pending_file
             kind = file_kind(pf["name"])
-            ic, engine = ("graphic_eq", "Speech-to-Text") if kind == "audio" else ("image", "Vision OCR")
+            icon_cls = "pdf" if kind == "pdf" else "image"
+            ic, engine = ("picture_as_pdf", "PDF OCR") if kind == "pdf" else ("image", "Vision OCR")
             render_html(f"""
-            <div class="md-file-pill"><div class="md-file-icon {kind}">{icon(ic)}</div>
+            <div class="md-file-pill"><div class="md-file-icon {icon_cls}">{icon(ic)}</div>
             <div style="flex:1;min-width:0"><div class="md-file-name">{esc(pf["name"])}</div>
             <div class="md-file-meta">{pf["size"] / (1024 * 1024):.2f} MB · Sẽ gửi trực tiếp tới /api/v1/upload ({engine})</div></div>
             <span class="md-chip chip-success">{icon("check_circle")}Hợp lệ</span></div>
@@ -1850,6 +1995,7 @@ def render_create_upload_and_edit() -> None:
             st.session_state.selected_subject = st.selectbox(
                 "Môn học", options=SUBJECT_LIST,
                 index=SUBJECT_LIST.index(st.session_state.selected_subject),
+                key="select_subject",
             )
         with col_btn:
             with st.container(key="btn_lg_upload"):
@@ -1892,9 +2038,15 @@ def render_create_upload_and_edit() -> None:
                 f'AI đã soạn sẵn {len(pending_set.get("flashcards", []))} thẻ &amp; {len(pending_set.get("quizzes", []))} câu hỏi</span>'
                 if pending_set.get("flashcards") or pending_set.get("quizzes") else ""
             )
+            dur_val = meta.get("duration_s")
+            speed_chip = (
+                f'<span class="md-chip chip-success">{icon("timer")}{dur_val:.1f}s</span>'
+                if isinstance(dur_val, (int, float)) else ""
+            )
             render_html(f"""
             <div class="md-meta-row">
               <span class="md-chip chip-primary">{icon("memory")}{esc(meta.get("engine", "AI"))}</span>
+              {speed_chip}
               <span class="md-chip chip-outline">{icon("info")}{esc(meta.get("detail", ""))}</span>
               <span class="md-chip chip-outline">{icon("notes")}{len(text_now.split())} từ</span>
               {ai_ready_chip}
@@ -1935,7 +2087,7 @@ def render_create_upload_and_edit() -> None:
 def render_results() -> None:
     study_set = st.session_state.current_study_set
     kind = file_kind(study_set["file_name"])
-    src_icon = "graphic_eq" if kind == "audio" else "image"
+    src_icon = "picture_as_pdf" if kind == "pdf" else "image"
     render_hero(
         "task_alt", "Màn 3 · Kết quả · Đã lưu vào Thư viện",
         study_set["title"],
@@ -2252,12 +2404,13 @@ def render_library() -> None:
             with col:
                 with st.container(border=True, key=f"card_lib_{item['doc_id']}"):
                     kind = file_kind(item["file_name"])
-                    src = "graphic_eq" if kind == "audio" else "image"
+                    icon_cls = "pdf" if kind == "pdf" else "image"
+                    src = "picture_as_pdf" if kind == "pdf" else "image"
                     score = item.get("last_score", "Chưa làm")
                     level = score_level(score)
                     render_html(f"""
                     <div class="lib-top">{subject_chip(item["subject"])}
-                    <span class="lib-src {kind}" title="{'Ghi âm' if kind == 'audio' else 'Ảnh'}">{icon(src)}</span></div>
+                    <span class="lib-src {icon_cls}" title="{'Tài liệu PDF' if kind == 'pdf' else 'Ảnh'}">{icon(src)}</span></div>
                     <div class="lib-title">{esc(item["title"])}</div>
                     <div class="lib-file">{icon("attach_file")}{esc(item["file_name"])} · {icon("schedule")}{esc(item["created_at"])}</div>
                     <div class="lib-stats">

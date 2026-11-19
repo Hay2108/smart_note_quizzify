@@ -1,3 +1,4 @@
+import base64
 import json
 from dataclasses import replace
 from io import BytesIO
@@ -8,16 +9,18 @@ import httpx
 from fastapi.testclient import TestClient
 from PIL import Image
 from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 import pytest
 from sqlalchemy import text
 
 from app.config import Settings
+from app.files import validate_file
 from app.main import create_app
 
 
-def png_bytes():
+def png_bytes(size=(80, 40), color="white"):
     stream = BytesIO()
-    Image.new("RGB", (80, 40), "white").save(stream, "PNG")
+    Image.new("RGB", size, color).save(stream, "PNG")
     return stream.getvalue()
 
 
@@ -32,11 +35,38 @@ def pdf_bytes(pages=1, encrypted=False):
     return stream.getvalue()
 
 
+DIGITAL_PDF_TEXT = (
+    "Artificial Intelligence and Machine Learning lecture notes covering neural networks, "
+    "supervised learning, unsupervised learning, and backpropagation formulas."
+)
+
+
+def digital_pdf_bytes(text_body=DIGITAL_PDF_TEXT):
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+    font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+    })
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)}),
+    })
+    escaped = text_body.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    content = DecodedStreamObject()
+    content.set_data(f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("latin-1"))
+    page[NameObject("/Contents")] = writer._add_object(content)
+    stream = BytesIO()
+    writer.write(stream)
+    return stream.getvalue()
+
+
 CONTENT = {"flashcards": [{"front_text": "AI là gì?", "back_text": "Trí tuệ nhân tạo"}],
            "quizzes": [{"question": "AI là viết tắt của từ nào?",
                         "options": ["Artificial Intelligence", "Machine Tool", "Network", "Database"],
                         "correct_answer": "Artificial Intelligence"}]}
 OCR = {"extracted_text": "AI là Artificial Intelligence, nghĩa là trí tuệ nhân tạo."}
+UNIFIED = {**OCR, **CONTENT}
 
 
 def envelope(provider, result):
@@ -53,7 +83,7 @@ def factory(tmp_path):
 
     def make(provider="gemini", replies=None, **overrides):
         calls = []
-        queue = list(replies if replies is not None else [OCR, CONTENT])
+        queue = list(replies if replies is not None else [UNIFIED])
 
         async def upstream(request):
             calls.append(request)
@@ -101,27 +131,32 @@ def test_upload_real_adapters_persist_linked_records(factory, provider, kind):
         else:
             response = post(client, "../../bai_giang.png")
         assert response.status_code == 201, response.text
+        assert "x-process-time-ms" in response.headers
+        assert int(response.headers["x-process-time-ms"]) >= 0
         result = response.json()
         assert result["status"] == "success"
         data = result["data"]
         assert "/" not in data["file_name"]
         assert data["extracted_text"] == OCR["extracted_text"]
-        assert len(calls) == 2
-        first, second = [json.loads(call.content) for call in calls]
+        # Single-pass multimodal call replaces two sequential OCR + Generate round-trips.
+        assert len(calls) == 1
+        first = json.loads(calls[0].content)
         if provider == "gemini":
             assert calls[0].headers["x-goog-api-key"] == settings.gemini_api_key
             assert "key=" not in str(calls[0].url)
             inline = first["contents"][0]["parts"][1]["inlineData"]
             assert inline["mimeType"] == ("application/pdf" if kind == "pdf" else "image/jpeg")
-            assert first["generationConfig"]["responseFormat"]["text"]["schema"]["type"] == "object"
-            assert OCR["extracted_text"] in second["contents"][0]["parts"][0]["text"]
+            assert first["generationConfig"]["temperature"] == 0.2
+            schema = first["generationConfig"]["responseFormat"]["text"]["schema"]
+            assert schema["type"] == "object"
+            assert {"extracted_text", "flashcards", "quizzes"} <= set(schema["properties"])
         else:
             assert calls[0].headers["authorization"] == "Bearer " + settings.openai_api_key
             part = first["input"][0]["content"][1]
             assert part["type"] == ("input_file" if kind == "pdf" else "input_image")
             assert first["text"]["format"]["strict"] is True
             assert first["store"] is False
-            assert OCR["extracted_text"] in second["input"][0]["content"][0]["text"]
+            assert first["temperature"] == 0.2
         assert counts(app) == {"users": 1, "documents": 1, "flashcards": 1, "quizzes": 1, "user_progress": 0}
         with app.state.engine.connect() as connection:
             doc = connection.execute(text("SELECT doc_id,user_id,file_name FROM documents")).one()
@@ -136,6 +171,171 @@ def test_upload_real_adapters_persist_linked_records(factory, provider, kind):
         with sqlite3.connect(settings.database_url.removeprefix("sqlite:///")) as independent:
             options = independent.execute("SELECT options FROM quizzes").fetchone()[0]
             assert json.loads(options) == CONTENT["quizzes"][0]["options"]
+
+
+@pytest.mark.parametrize("provider", ["gemini", "openai"])
+def test_digital_pdf_uses_native_text_fast_path(factory, provider):
+    app, calls, _ = factory(provider, replies=[CONTENT])
+    with TestClient(app) as client:
+        response = post(client, "digital_notes.pdf", digital_pdf_bytes(), "application/pdf")
+        assert response.status_code == 201, response.text
+        data = response.json()["data"]
+        assert "Artificial Intelligence" in data["extracted_text"]
+        assert "backpropagation" in data["extracted_text"]
+        assert len(calls) == 1
+        payload = json.loads(calls[0].content)
+        if provider == "gemini":
+            parts = payload["contents"][0]["parts"]
+            assert len(parts) == 1
+            assert "inlineData" not in parts[0]
+            assert "Artificial Intelligence" in parts[0]["text"]
+        else:
+            content = payload["input"][0]["content"]
+            assert len(content) == 1
+            assert content[0]["type"] == "input_text"
+            assert "Artificial Intelligence" in content[0]["text"]
+        assert counts(app) == {"users": 1, "documents": 1, "flashcards": 1, "quizzes": 1, "user_progress": 0}
+
+
+def test_gemini_thinking_config_and_400_fallback(factory):
+    # Gemini 3.x uses thinkingLevel=minimal and strips thinkingConfig cleanly on HTTP 400.
+    app, calls, _ = factory(
+        "gemini",
+        replies=[httpx.Response(400, json={"error": {"message": "unsupported thinkingConfig"}}), UNIFIED],
+        gemini_model="gemini-3.6-flash",
+    )
+    with TestClient(app) as client:
+        response = post(client)
+        assert response.status_code == 201, response.text
+        assert len(calls) == 2
+        first_body = json.loads(calls[0].content)
+        second_body = json.loads(calls[1].content)
+        assert first_body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
+        assert "thinkingConfig" not in second_body["generationConfig"]
+        assert "gemini-3.6-flash" in str(calls[0].url)
+        assert "gemini-3.6-flash" in str(calls[1].url)
+
+    # Gemini 2.5 uses thinkingBudget=0.
+    app25, calls25, _ = factory("gemini", replies=[UNIFIED], gemini_model="gemini-2.5-flash")
+    with TestClient(app25) as client:
+        response = post(client)
+        assert response.status_code == 201, response.text
+        assert len(calls25) == 1
+        body25 = json.loads(calls25[0].content)
+        assert body25["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+
+
+def test_gemini_fallback_chain_skips_404_and_fails_over_on_timeout(tmp_path):
+    calls = []
+    queue = [
+        httpx.Response(404, json={"error": {"message": "model not found"}}),
+        httpx.ReadTimeout("upstream slow"),
+        httpx.Response(200, json=envelope("gemini", UNIFIED)),
+    ]
+
+    class _FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            calls.append(request)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / (str(uuid4()) + '.db')}",
+        ai_provider="gemini",
+        gemini_api_key="test-gemini-secret",
+        gemini_model="gemini-2.5-flash",
+        ai_max_retries=0,
+    )
+    app = create_app(settings, transport=_FakeTransport())
+    try:
+        with TestClient(app) as client:
+            response = post(client)
+            assert response.status_code == 201, response.text
+            urls = [str(req.url) for req in calls]
+            assert len(urls) == 3
+            assert "gemini-2.5-flash:generateContent" in urls[0]
+            assert "gemini-3.1-flash-lite-preview:generateContent" in urls[1]
+            assert "gemini-3-flash-preview:generateContent" in urls[2]
+    finally:
+        app.state.engine.dispose()
+
+
+def test_gemini_instant_failover_and_model_cooldown(tmp_path):
+    calls = []
+    queue = [
+        httpx.Response(503, json={"error": {"message": "high demand"}}),
+        httpx.Response(200, json=envelope("gemini", UNIFIED)),
+        httpx.Response(200, json=envelope("gemini", UNIFIED)),
+    ]
+
+    class _FakeTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            calls.append(request)
+            return queue.pop(0)
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / (str(uuid4()) + '.db')}",
+        ai_provider="gemini",
+        gemini_api_key="test-gemini-secret",
+        gemini_model="gemini-3.6-flash",
+        ai_max_retries=2,
+    )
+    app = create_app(settings, transport=_FakeTransport())
+    try:
+        with TestClient(app) as client:
+            # First request: 503 on gemini-3.6-flash fails over immediately (0 retries) to gemini-3.1-flash-lite-preview.
+            first = post(client)
+            assert first.status_code == 201, first.text
+            # Second request: gemini-3.6-flash is in cooldown, so it goes straight to gemini-3.1-flash-lite-preview.
+            second = post(client)
+            assert second.status_code == 201, second.text
+            urls = [str(req.url) for req in calls]
+            assert len(urls) == 3
+            assert "gemini-3.6-flash:generateContent" in urls[0]
+            assert "gemini-3.1-flash-lite-preview:generateContent" in urls[1]
+            assert "gemini-3.1-flash-lite-preview:generateContent" in urls[2]
+    finally:
+        app.state.engine.dispose()
+
+
+def test_high_res_under_1mb_png_downscales_and_succeeds(factory):
+    app, calls, _ = factory("gemini")
+    # 3200x1800 PNG (5.76M pixels <= 20M limit, tiny compressed PNG < 1 MB)
+    large_png = png_bytes(size=(3200, 1800), color="white")
+    assert len(large_png) < 1024 * 1024
+    with TestClient(app) as client:
+        response = post(client, "highres_slide.png", large_png, "image/png")
+        assert response.status_code == 201, response.text
+        assert len(calls) == 1
+        payload = json.loads(calls[0].content)
+        inline = payload["contents"][0]["parts"][1]["inlineData"]
+        assert inline["mimeType"] == "image/jpeg"
+        sent_bytes = base64.b64decode(inline["data"])
+        assert len(sent_bytes) < 512 * 1024
+        with Image.open(BytesIO(sent_bytes)) as normalized:
+            assert max(normalized.size) <= 1600
+
+
+def test_validate_file_native_text_detection():
+    settings = Settings()
+    assert validate_file("scan.pdf", "application/pdf", pdf_bytes(), settings).native_text is None
+    digital = validate_file("digital.pdf", "application/pdf", digital_pdf_bytes(), settings)
+    assert digital.native_text is not None
+    assert "Artificial Intelligence" in digital.native_text
+    assert validate_file("slide.png", "image/png", png_bytes(), settings).native_text is None
+
+
+def test_normalized_image_too_large_when_limit_tiny(factory):
+    app, calls, _ = factory(max_upload_bytes=250)
+    tiny_png = png_bytes(size=(64, 64), color="white")
+    assert len(tiny_png) <= 250
+    with TestClient(app) as client:
+        response = post(client, "tiny.png", tiny_png, "image/png")
+        assert response.status_code == 413
+        assert response.json()["error"]["code"] == "NORMALIZED_IMAGE_TOO_LARGE"
+        assert not calls
 
 
 @pytest.mark.parametrize("name,data,mime,status,code", [
@@ -273,13 +473,13 @@ def test_connection_timeout_and_bad_http_json(factory, failure, expected):
 
 
 def test_retry_only_retryable_status(factory):
-    app, calls, _ = factory(replies=[httpx.Response(429), OCR, CONTENT], ai_max_retries=1)
+    app, calls, _ = factory(replies=[httpx.Response(429), UNIFIED], ai_max_retries=1)
     with TestClient(app) as client:
         assert post(client).status_code == 201
-        assert len(calls) == 3
+        assert len(calls) == 2
 
 
-def test_total_ai_deadline_includes_both_calls(factory):
+def test_total_ai_deadline_enforced(factory):
     import asyncio
     app, _, _ = factory(ai_timeout_seconds=0.03)
     with TestClient(app) as client:
@@ -292,17 +492,17 @@ def test_total_ai_deadline_includes_both_calls(factory):
         assert not any(counts(app).values())
 
 
-def test_generation_failure_does_not_persist_ocr_as_success(factory):
-    app, calls, _ = factory(replies=[OCR, httpx.Response(500)])
+def test_ai_failure_does_not_persist_partial_data(factory):
+    app, calls, _ = factory(replies=[httpx.Response(500)])
     with TestClient(app) as client:
         response = post(client)
         assert response.status_code == 502
-        assert len(calls) == 2
+        assert len(calls) == 1
         assert not any(counts(app).values())
 
 
 def test_repeated_upload_reuses_local_profile(factory):
-    app, _, _ = factory(replies=[OCR, CONTENT, OCR, CONTENT])
+    app, _, _ = factory(replies=[UNIFIED, UNIFIED])
     with TestClient(app) as client:
         first, second = post(client), post(client)
         assert first.status_code == second.status_code == 201
@@ -322,9 +522,11 @@ def test_refusal_or_truncation_not_saved(factory, provider):
 
 
 @pytest.mark.parametrize("bad_result", [
-    "```json\n{}\n```", {"extracted_text": 123}, {"extracted_text": "abc", "extra": "bad"},
+    "```json\n{}\n```",
+    {"extracted_text": 123, "flashcards": [], "quizzes": []},
+    {**UNIFIED, "extra": "bad"},
 ])
-def test_invalid_ocr_json_not_saved(factory, bad_result):
+def test_invalid_ai_json_not_saved(factory, bad_result):
     app, _, _ = factory(replies=[bad_result])
     with TestClient(app) as client:
         assert post(client).status_code == 502
@@ -333,7 +535,7 @@ def test_invalid_ocr_json_not_saved(factory, bad_result):
 
 @pytest.mark.parametrize("empty", ["", "   ", "[không đọc rõ]"])
 def test_no_text_is_not_fake_success(factory, empty):
-    app, calls, _ = factory(replies=[{"extracted_text": empty}])
+    app, calls, _ = factory(replies=[{"extracted_text": empty, "flashcards": [], "quizzes": []}])
     with TestClient(app) as client:
         response = post(client)
         assert response.status_code == 422
@@ -347,9 +549,12 @@ def test_no_text_is_not_fake_success(factory, empty):
     (["a", "A", "c", "d"], "a"), (["a", "b", "c", "d"], "a" * 256),
 ])
 def test_invalid_quiz_not_saved(factory, options, answer):
-    content = {"flashcards": CONTENT["flashcards"], "quizzes": [
-        {"question": "Question?", "options": options, "correct_answer": answer}]}
-    app, _, _ = factory(replies=[OCR, content])
+    unified = {
+        **OCR,
+        "flashcards": CONTENT["flashcards"],
+        "quizzes": [{"question": "Question?", "options": options, "correct_answer": answer}],
+    }
+    app, _, _ = factory(replies=[unified])
     with TestClient(app) as client:
         assert post(client).status_code == 502
         assert not any(counts(app).values())
@@ -384,7 +589,7 @@ def test_existing_supplied_schema_is_supported_without_migration(tmp_path):
     shutil.copy2(Path(__file__).resolve().parents[1] / "smart_note.db", target)
     with sqlite3.connect(target) as connection:
         old_schema = connection.execute("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
-    queue = [OCR, CONTENT]
+    queue = [UNIFIED]
 
     async def upstream(request):
         return httpx.Response(200, json=envelope("gemini", queue.pop(0)))
@@ -411,4 +616,6 @@ def test_swagger_docs_schema_and_cors(factory):
         response = client.options("/api/v1/upload", headers={"Origin": "http://localhost:8501",
                                   "Access-Control-Request-Method": "POST"})
         assert response.headers["access-control-allow-origin"] == "http://localhost:8501"
+        cors_get = client.get("/health", headers={"Origin": "http://localhost:8501"})
+        assert "x-process-time-ms" in cors_get.headers.get("access-control-expose-headers", "").lower()
         assert not calls

@@ -43,7 +43,7 @@ class Settings:
             ai_provider=os.getenv("AI_PROVIDER", "gemini").strip().lower(),
             gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip(),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview").strip(),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1").strip(),
             ai_timeout_seconds=float(os.getenv("AI_TIMEOUT_SECONDS", "120")),
             ai_max_retries=int(os.getenv("AI_MAX_RETRIES", "1")),
