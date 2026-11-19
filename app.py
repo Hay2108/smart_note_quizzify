@@ -948,6 +948,34 @@ def go_to(nav: str, screen: int | None = None) -> None:
     st.rerun()
 
 
+def reset_to_new_upload(notify: bool = False) -> None:
+    """Làm mới toàn bộ phiên tải lên/ôn tập và đưa người dùng thẳng về Màn 1 (Tải lên file mới)."""
+    st.session_state.update({
+        "nav_menu": "Tạo mới",
+        "current_screen": 1,
+        "extracted_text": "",
+        "draft_text": "",
+        "pending_file": None,
+        "uploaded_file_name": None,
+        "extract_meta": None,
+        "pending_study_set": None,
+        "api_error_state": None,
+        "fc_pos": 0,
+        "fc_flipped": False,
+        "fc_known": [],
+        "fc_unknown": [],
+        "fc_order": [],
+        "quiz_index": 0,
+        "quiz_answers": {},
+        "quiz_finished": False,
+        "quiz_warning": False,
+        "uploader_key": st.session_state.get("uploader_key", 0) + 1,
+    })
+    st.session_state.pop("editor_text", None)
+    if notify:
+        queue_toast("Đã làm mới — hãy tải lên tài liệu tiếp theo!", ":material/upload_file:")
+
+
 def start_flashcards(order=None) -> None:
     total = len(st.session_state.current_study_set["flashcards"])
     st.session_state.fc_order = list(order) if order is not None else list(range(total))
@@ -1711,8 +1739,8 @@ with st.sidebar:
         is_create = st.session_state.nav_menu == "Tạo mới"
         if st.button("Tạo mới", key="nav_create", icon=":material/add_circle:",
                      type="primary" if is_create else "tertiary", width="stretch"):
-            if not is_create:
-                go_to("Tạo mới")
+            reset_to_new_upload(notify=(not is_create or st.session_state.current_screen > 1))
+            st.rerun()
         lib_count = len(st.session_state.library_db)
         if st.button(f"Thư viện  ·  {lib_count}", key="nav_library", icon=":material/local_library:",
                      type="tertiary" if is_create else "primary", width="stretch"):
@@ -1722,12 +1750,7 @@ with st.sidebar:
     if st.session_state.nav_menu == "Tạo mới" and st.session_state.current_screen > 1:
         st.write("")
         if st.button("Tạo học liệu mới từ đầu", key="nav_reset", icon=":material/restart_alt:", width="stretch"):
-            st.session_state.update({
-                "current_screen": 1, "extracted_text": "", "draft_text": "", "pending_file": None,
-                "uploaded_file_name": None, "extract_meta": None, "pending_study_set": None,
-                "api_error_state": None, "uploader_key": st.session_state.uploader_key + 1,
-            })
-            st.session_state.pop("editor_text", None)
+            reset_to_new_upload(notify=True)
             st.rerun()
 
     current = st.session_state.current_study_set
@@ -2150,6 +2173,18 @@ def render_results() -> None:
                 start_quiz()
                 st.rerun()
 
+    st.divider()
+    col_res_l, col_res_r = st.columns(2)
+    with col_res_l:
+        if st.button("Tạo bài mới từ file khác", type="tertiary", icon=":material/add_circle:",
+                     key="res_new_upload"):
+            reset_to_new_upload(notify=True)
+            st.rerun()
+    with col_res_r:
+        if st.button("Xem Thư viện học liệu", type="tertiary", icon=":material/local_library:",
+                     key="res_to_lib"):
+            go_to("Thư viện")
+
 
 # ----------------------------------------------------------
 # 5.3 · MÀN 4 · ÔN FLASHCARD
@@ -2227,7 +2262,7 @@ def render_flashcards() -> None:
             st.metric("Tổng số thẻ", f"{total}")
 
         st.write("")
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
             if unknown:
                 with st.container(key="btn_tonal_retry"):
@@ -2242,6 +2277,10 @@ def render_flashcards() -> None:
                 start_quiz()
                 st.rerun()
         with col_c:
+            if st.button("Tạo bài mới", icon=":material/add_circle:", width="stretch", key="fc_new_upload"):
+                reset_to_new_upload(notify=True)
+                st.rerun()
+        with col_d:
             if st.button("Về Thư viện", icon=":material/local_library:", width="stretch", key="fc_to_lib"):
                 go_to("Thư viện")
 
@@ -2331,7 +2370,7 @@ def render_quiz() -> None:
                 st.info(f"**Giải thích:** {item['explanation']}", icon=":material/lightbulb:")
 
         st.write("")
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
             if st.button("Làm lại đề này", icon=":material/restart_alt:", width="stretch", key="quiz_retry"):
                 start_quiz()
@@ -2340,8 +2379,12 @@ def render_quiz() -> None:
             if st.button("Xem lại Kết quả", icon=":material/summarize:", width="stretch", key="quiz_to_res"):
                 go_to("Tạo mới", 3)
         with col_c:
-            if st.button("Về Thư viện", type="primary", icon=":material/local_library:", width="stretch", key="quiz_to_lib"):
+            if st.button("Về Thư viện", icon=":material/local_library:", width="stretch", key="quiz_to_lib"):
                 go_to("Thư viện")
+        with col_d:
+            if st.button("Tạo bài mới", type="primary", icon=":material/add_circle:", width="stretch", key="quiz_new_upload"):
+                reset_to_new_upload(notify=True)
+                st.rerun()
 
     st.divider()
     if st.button("Quay lại Kết quả", type="tertiary", icon=":material/arrow_back:", key="quiz_back"):

@@ -399,6 +399,38 @@ def test_direct_api_v1_upload_and_error_alerts() -> None:
     )
 
 
+def test_reset_to_new_upload_navigation() -> None:
+    """Kiểm thử làm mới phiên để quay thẳng về Màn 1 (Tải lên file mới) từ Màn 4/5 hoặc Thư viện."""
+    prev_key = app.st.session_state.get("uploader_key", 0)
+    app.st.session_state.update({
+        "nav_menu": "Thư viện",
+        "current_screen": 5,
+        "extracted_text": "Văn bản cũ",
+        "draft_text": "Bản nháp cũ",
+        "editor_text": "Bản nháp cũ",
+        "pending_file": {"name": "cu.png", "size": 100, "bytes": b"123"},
+        "uploaded_file_name": "cu.png",
+        "api_error_state": ("extract", "Lỗi cũ", "AI_TIMEOUT"),
+        "quiz_finished": True,
+        "quiz_answers": {0: "A"},
+        "fc_pos": 3,
+        "fc_known": [0, 1],
+    })
+    app.reset_to_new_upload(notify=True)
+    assert app.st.session_state.nav_menu == "Tạo mới"
+    assert app.st.session_state.current_screen == 1
+    assert app.st.session_state.extracted_text == ""
+    assert app.st.session_state.draft_text == ""
+    assert "editor_text" not in app.st.session_state
+    assert app.st.session_state.pending_file is None
+    assert app.st.session_state.api_error_state is None
+    assert app.st.session_state.quiz_finished is False
+    assert app.st.session_state.quiz_answers == {}
+    assert app.st.session_state.fc_pos == 0
+    assert app.st.session_state.uploader_key == prev_key + 1
+    assert app.st.session_state.pending_toast is not None
+
+
 if __name__ == "__main__":
     test_unique_streamlit_keys()
     print("[PASS] 1. Kiểm tra tính duy nhất của Streamlit widget keys")
@@ -414,4 +446,6 @@ if __name__ == "__main__":
     print("[PASS] 6. Kiểm thử logic tính điểm Trắc nghiệm & so khớp đáp án")
     test_direct_api_v1_upload_and_error_alerts()
     print("[PASS] 7. Kiểm thử POST /api/v1/upload, X-Process-Time-Ms, Error Alert Hints & Toast động")
-    print("\n==> TẤT CẢ BÀI KIỂM THỬ ĐỀU THÀNH CÔNG (7/7 PASSED)!")
+    test_reset_to_new_upload_navigation()
+    print("[PASS] 8. Kiểm thử điều hướng Tạo mới / làm mới hoàn toàn về Màn 1")
+    print("\n==> TẤT CẢ BÀI KIỂM THỬ ĐỀU THÀNH CÔNG (8/8 PASSED)!")
